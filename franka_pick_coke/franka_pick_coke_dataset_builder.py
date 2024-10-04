@@ -237,7 +237,8 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
 
                 episode.append({
                     'observation': {
-                        'image': db['rgb_imgs'][2][i],  # 2 is front, 1 is side, 0 is top
+                        'image': db['rgb_imgs'][2][i][:, :, ::-1],  # swap from BGR to RGB
+                        # 'image': db['rgb_imgs'][2][i],  # 2 is front, 1 is side, 0 is top
                         'state': np.concatenate((pos, rpy)),
                         'gripper_state': np.array([1 if db['gripper_cmd'][i] <= 0 else -1], dtype=np.int8),
                     },
