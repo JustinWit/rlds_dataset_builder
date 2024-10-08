@@ -113,7 +113,7 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                 'steps': tfds.features.Dataset({
                     'observation': tfds.features.FeaturesDict({
                         'image': tfds.features.Tensor(
-                            shape=(360, 640, 3),
+                            shape=(360, 360, 3),
                             dtype=np.uint8,
                             doc='Front camera RGB observation.',
                         ),
@@ -158,36 +158,36 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                         shape=(7,),
                         dtype=np.float32,
                         doc='Robot action: EEF Delta XYZ (3) + Roll-Pitch-Yaw (3) + Gripper Open/Close (1)',
-                    ),
-                    'discount': tfds.features.Scalar(
-                        dtype=np.float32,
-                        doc='Discount if provided, default to 1.'
-                    ),
-                    'reward': tfds.features.Scalar(
-                        dtype=np.float32,
-                        doc='Reward if provided, 1 on final step for demos.'
-                    ),
-                    'is_first': tfds.features.Scalar(
-                        dtype=np.bool_,
-                        doc='True on first step of the episode.'
-                    ),
-                    'is_last': tfds.features.Scalar(
-                        dtype=np.bool_,
-                        doc='True on last step of the episode.'
-                    ),
-                    'is_terminal': tfds.features.Scalar(
-                        dtype=np.bool_,
-                        doc='True on last step of the episode if it is a terminal step, True for demos.'
+                    # ),
+                    # 'discount': tfds.features.Scalar(
+                    #     dtype=np.float32,
+                    #     doc='Discount if provided, default to 1.'
+                    # ),
+                    # 'reward': tfds.features.Scalar(
+                    #     dtype=np.float32,
+                    #     doc='Reward if provided, 1 on final step for demos.'
+                    # ),
+                    # 'is_first': tfds.features.Scalar(
+                    #     dtype=np.bool_,
+                    #     doc='True on first step of the episode.'
+                    # ),
+                    # 'is_last': tfds.features.Scalar(
+                    #     dtype=np.bool_,
+                    #     doc='True on last step of the episode.'
+                    # ),
+                    # 'is_terminal': tfds.features.Scalar(
+                    #     dtype=np.bool_,
+                    #     doc='True on last step of the episode if it is a terminal step, True for demos.'
                     ),
                     'language_instruction': tfds.features.Text(
                         doc='Language Instruction.'
                     ),
-                    'language_embedding': tfds.features.Tensor(
-                        shape=(1,),
-                        dtype=np.float16,
-                        doc='Kona language embedding. '
-                            'See https://tfhub.dev/google/universal-sentence-encoder-large/5'
-                    ),
+                    # 'language_embedding': tfds.features.Tensor(
+                    #     shape=(1,),
+                    #     dtype=np.float16,
+                    #     doc='Kona language embedding. '
+                    #         'See https://tfhub.dev/google/universal-sentence-encoder-large/5'
+                    # ),
                 }),
                 'episode_metadata': tfds.features.FeaturesDict({
                     'file_path': tfds.features.Text(
@@ -235,21 +235,28 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                     delta_rpy = np.zeros(3)
                     delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else -1]
 
+                # # copy clipping frmo openteach
+                # delta_pos *= 10
+                # delta_pos = np.clip(delta_pos, -1.0, 1.0)
+                # delta_rpy = np.clip(delta_rpy, -0.5, 0.5)
+
+                image = db['rgb_imgs'][2][i]  # 2 is front, 1 is side, 0 is top
+                image = image[:, 140:500]  # center crop 360x360
+
                 episode.append({
                     'observation': {
-                        'image': db['rgb_imgs'][2][i][:, :, ::-1],  # swap from BGR to RGB
-                        # 'image': db['rgb_imgs'][2][i],  # 2 is front, 1 is side, 0 is top
+                        'image': image,
                         'state': np.concatenate((pos, rpy)),
                         'gripper_state': np.array([1 if db['gripper_cmd'][i] <= 0 else -1], dtype=np.int8),
                     },
                     'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
-                    'discount': 1.0,
-                    'reward': float(i == (len(db['timestamps']) - 1)),
-                    'is_first': i == 0,
-                    'is_last': i == (len(db['timestamps']) - 1),
-                    'is_terminal': i == (len(db['timestamps']) - 1),
+                    # 'discount': 1.0,
+                    # 'reward': float(i == (len(db['timestamps']) - 1)),
+                    # 'is_first': i == 0,
+                    # 'is_last': i == (len(db['timestamps']) - 1),
+                    # 'is_terminal': i == (len(db['timestamps']) - 1),
                     'language_instruction': "Pick up the coke can",
-                    'language_embedding': np.zeros((1,), dtype=np.float16),
+                    # 'language_embedding': np.zeros((1,), dtype=np.float16),
                 })
 
             # create output data sample
