@@ -8,90 +8,8 @@ import tensorflow_hub as hub
 import pickle as pkl
 import math
 
-PI = np.pi
-EPS = np.finfo(float).eps * 4.0
+from transform_utils import mat2quat, quat2axisangle, mat2euler
 
-# axis sequences for Euler angles
-_NEXT_AXIS = [1, 2, 0, 1]
-
-# map axes strings to/from tuples of inner axis, parity, repetition, frame
-_AXES2TUPLE = {
-    "sxyz": (0, 0, 0, 0),
-    "sxyx": (0, 0, 1, 0),
-    "sxzy": (0, 1, 0, 0),
-    "sxzx": (0, 1, 1, 0),
-    "syzx": (1, 0, 0, 0),
-    "syzy": (1, 0, 1, 0),
-    "syxz": (1, 1, 0, 0),
-    "syxy": (1, 1, 1, 0),
-    "szxy": (2, 0, 0, 0),
-    "szxz": (2, 0, 1, 0),
-    "szyx": (2, 1, 0, 0),
-    "szyz": (2, 1, 1, 0),
-    "rzyx": (0, 0, 0, 1),
-    "rxyx": (0, 0, 1, 1),
-    "ryzx": (0, 1, 0, 1),
-    "rxzx": (0, 1, 1, 1),
-    "rxzy": (1, 0, 0, 1),
-    "ryzy": (1, 0, 1, 1),
-    "rzxy": (1, 1, 0, 1),
-    "ryxy": (1, 1, 1, 1),
-    "ryxz": (2, 0, 0, 1),
-    "rzxz": (2, 0, 1, 1),
-    "rxyz": (2, 1, 0, 1),
-    "rzyz": (2, 1, 1, 1),
-}
-
-_TUPLE2AXES = dict((v, k) for k, v in _AXES2TUPLE.items())
-
-
-def mat2euler(rmat, axes="sxyz"):  # from /home/ripl/deoxys_control/deoxys/deoxys/utils/transform_utils.py
-    """
-    Converts given rotation matrix to euler angles in radian.
-
-    Args:
-        rmat (np.array): 3x3 rotation matrix
-        axes (str): One of 24 axis sequences as string or encoded tuple (see top of this module)
-
-    Returns:
-        np.array: (r,p,y) converted euler angles in radian vec3 float
-    """
-    try:
-        firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
-    except (AttributeError, KeyError):
-        firstaxis, parity, repetition, frame = axes
-
-    i = firstaxis
-    j = _NEXT_AXIS[i + parity]
-    k = _NEXT_AXIS[i - parity + 1]
-
-    M = np.array(rmat, dtype=np.float32, copy=False)[:3, :3]
-    if repetition:
-        sy = math.sqrt(M[i, j] * M[i, j] + M[i, k] * M[i, k])
-        if sy > EPS:
-            ax = math.atan2(M[i, j], M[i, k])
-            ay = math.atan2(sy, M[i, i])
-            az = math.atan2(M[j, i], -M[k, i])
-        else:
-            ax = math.atan2(-M[j, k], M[j, j])
-            ay = math.atan2(sy, M[i, i])
-            az = 0.0
-    else:
-        cy = math.sqrt(M[i, i] * M[i, i] + M[j, i] * M[j, i])
-        if cy > EPS:
-            ax = math.atan2(M[k, j], M[k, k])
-            ay = math.atan2(-M[k, i], cy)
-            az = math.atan2(M[j, i], M[i, i])
-        else:
-            ax = math.atan2(-M[j, k], M[j, j])
-            ay = math.atan2(-M[k, i], cy)
-            az = 0.0
-
-    if parity:
-        ax, ay, az = -ax, -ay, -az
-    if frame:
-        ax, az = az, ax
-    return np.array((ax, ay, az), dtype=np.float32)
 
 
 class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
@@ -218,22 +136,32 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                 # language_embedding = self._embed("Pick up the coke can")[0].numpy()
 
                 # Convert demonstration data to 6DOF actions
-                pos = db['eef_pose'][i, :3, 3]  # (x, y, z)
-                rpy = np.array(mat2euler(db['eef_pose'][i, :3, :3]))  # (roll, pitch, yaw)
+                current_pos = db['eef_pose'][i, :3, 3]  # (x, y, z)
+                current_quat = mat2quat(db['eef_pose'][i, :3, :3])  # (roll, pitch, yaw)
 
                 # calculate delta action to N step
                 N = 10
                 # use eef_pose[t+1] - eef_pose[t]
                 if i < len(db['timestamps']) - N:
-                    next_pos = db['eef_pose'][i + N, :3, 3]
-                    next_rpy = np.array(mat2euler(db['eef_pose'][i + N, :3, :3]))
-                    delta_pos = next_pos - pos
-                    delta_rpy = next_rpy - rpy
-                    delta_gripper = [1 if db['gripper_cmd'][i+N] <= 0 else -1]
+                    # next_pos = db['eef_pose'][i + N, :3, 3]
+                    # next_rpy = np.array(mat2euler(db['eef_pose'][i + N, :3, :3]))
+                    # delta_pos = next_pos - pos
+                    # delta_rpy = next_rpy - rpy
+                    delta_pos = db['eef_pose'][i+N][:3, 3] - current_pos
+                    target_quat = mat2quat(db['eef_pose'][i+N][:3, :3])
+                    if np.dot(target_quat, current_quat) < 0.0:
+                        current_quat = -current_quat
+                    delta_rpy = quat2axisangle(target_quat) - quat2axisangle(current_quat)
+
+
+                    deltas = np.concatenate((delta_pos, delta_rpy))
+                    delta_gripper = [0 if db['gripper_cmd'][i] <= 0 else 1]  # 0 -> closed, 1 -> open
                 else:
-                    delta_pos = np.zeros(3)
-                    delta_rpy = np.zeros(3)
-                    delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else -1]
+                    continue  # dont map last few states to zeros, could confuse training
+                    # delta_pos = np.zeros(3)
+                    # delta_rpy = np.zeros(3)
+                    # deltas = np.zeros(6)
+                    # delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else -1]
 
                 # # copy clipping frmo openteach
                 # delta_pos *= 10
@@ -246,16 +174,17 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                 episode.append({
                     'observation': {
                         'image': image,
-                        'state': np.concatenate((pos, rpy)),
-                        'gripper_state': np.array([1 if db['gripper_cmd'][i] <= 0 else -1], dtype=np.int8),
+                        'state': np.concatenate((current_pos, quat2axisangle(current_quat))),
+                        'gripper_state': np.array([0 if db['gripper_cmd'][i] <= 0 else 1], dtype=np.int8),  # 0 -> closed, 1 -> open
                     },
-                    'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
+                    # 'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
+                    'action': np.concatenate((deltas, delta_gripper), dtype=np.float32),
                     # 'discount': 1.0,
                     # 'reward': float(i == (len(db['timestamps']) - 1)),
                     # 'is_first': i == 0,
                     # 'is_last': i == (len(db['timestamps']) - 1),
                     # 'is_terminal': i == (len(db['timestamps']) - 1),
-                    'language_instruction': "Pick up the coke can",
+                    'language_instruction': "pick up the coke can",
                     # 'language_embedding': np.zeros((1,), dtype=np.float16),
                 })
 
