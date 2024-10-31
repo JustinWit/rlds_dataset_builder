@@ -8,7 +8,7 @@ import tensorflow_hub as hub
 import pickle as pkl
 import math
 
-from transform_utils import mat2quat, quat2axisangle, mat2euler
+from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat
 
 
 
@@ -22,7 +22,6 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._embed = hub.load("https://tfhub.dev/google/universal-sentence-encoder-large/5")
 
     def _info(self) -> tfds.core.DatasetInfo:
         """Dataset metadata (homepage, citation,...)."""
@@ -131,37 +130,35 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
 
             # assemble episode --> here we're assuming demos so we set reward to 1 at the end
             episode = []
-            for i in range(len(db['timestamps'])):
-                # compute Kona language embedding
-                # language_embedding = self._embed("Pick up the coke can")[0].numpy()
+            N = 1
+            for i in range(0, len(db['timestamps']) - N, N):
+                # calculate delta action to N step
+                # if i % N != 0:
+                #     continue
 
                 # Convert demonstration data to 6DOF actions
-                current_pos = db['eef_pose'][i, :3, 3]  # (x, y, z)
-                current_quat = mat2quat(db['eef_pose'][i, :3, :3])  # (roll, pitch, yaw)
+                current_pos = db['eef_pos'][i]
+                target_pos = db['eef_pos'][i + N]
+                delta_pos = target_pos - current_pos
 
-                # calculate delta action to N step
-                N = 10
-                # use eef_pose[t+1] - eef_pose[t]
-                if i < len(db['timestamps']) - N:
-                    # next_pos = db['eef_pose'][i + N, :3, 3]
-                    # next_rpy = np.array(mat2euler(db['eef_pose'][i + N, :3, :3]))
-                    # delta_pos = next_pos - pos
-                    # delta_rpy = next_rpy - rpy
-                    delta_pos = db['eef_pose'][i+N][:3, 3] - current_pos
-                    target_quat = mat2quat(db['eef_pose'][i+N][:3, :3])
-                    if np.dot(target_quat, current_quat) < 0.0:
-                        current_quat = -current_quat
-                    delta_rpy = quat2axisangle(target_quat) - quat2axisangle(current_quat)
+                current_quat = db['eef_quat'][i]
+                target_quat = db['eef_quat'][i + N]
+                if np.dot(target_quat, current_quat) < 0.0:
+                    current_quat = -current_quat
 
+                # convert both quats to rot mats
+                current_rot_mat = quat2mat(current_quat)
+                target_rot_mat = quat2mat(target_quat)
 
-                    deltas = np.concatenate((delta_pos, delta_rpy))
-                    delta_gripper = [0 if db['gripper_cmd'][i] <= 0 else 1]  # 0 -> closed, 1 -> open
-                else:
-                    continue  # dont map last few states to zeros, could confuse training
-                    # delta_pos = np.zeros(3)
-                    # delta_rpy = np.zeros(3)
-                    # deltas = np.zeros(6)
-                    # delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else -1]
+                # calculate delta rot mat
+                delta_rot_mat = target_rot_mat @ np.linalg.inv(current_rot_mat)
+
+                # convert to rpy Euler angles
+                delta_rpy = mat2euler(delta_rot_mat)
+
+                # delta_rpy = quat2axisangle(target_quat) - quat2axisangle(current_quat)
+                deltas = np.concatenate((delta_pos, delta_rpy))
+                delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else 0]  # 0 -> open , 1 -> close
 
                 # # copy clipping frmo openteach
                 # delta_pos *= 10
@@ -174,8 +171,8 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                 episode.append({
                     'observation': {
                         'image': image,
-                        'state': np.concatenate((current_pos, quat2axisangle(current_quat))),
-                        'gripper_state': np.array([0 if db['gripper_cmd'][i] <= 0 else 1], dtype=np.int8),  # 0 -> closed, 1 -> open
+                        'state': np.concatenate((current_pos, mat2euler(quat2mat(current_quat)))),
+                        'gripper_state': np.array([1 if db['gripper_cmd'][i] <= 0 else 0], dtype=np.int8),   # 0 -> open , 1 -> close
                     },
                     # 'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
                     'action': np.concatenate((deltas, delta_gripper), dtype=np.float32),
@@ -207,9 +204,9 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
             yield _parse_example(sample)
 
         # for large datasets use beam to parallelize data parsing (this will have initialization overhead)
-        # beam = tfds.core.lazy_imports.apache_beam
-        # return (
-        #         beam.Create(episode_paths)
-        #         | beam.Map(_parse_example)
-        # )
+        beam = tfds.core.lazy_imports.apache_beam
+        return (
+                beam.Create(episode_paths)
+                | beam.Map(_parse_example)
+        )
 
