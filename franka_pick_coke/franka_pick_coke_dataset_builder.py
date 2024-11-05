@@ -8,7 +8,7 @@ import tensorflow_hub as hub
 import pickle as pkl
 import math
 
-from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat
+from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisangle2quat
 
 
 
@@ -42,7 +42,7 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                         ),
                         'gripper_state': tfds.features.Tensor(
                         shape=(1,),
-                        dtype=np.int8,
+                        dtype=np.float32,
                         doc='gripper_cmd (x).',
                         ),
                         # 'image2': tfds.features.Tensor(
@@ -130,52 +130,22 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
 
             # assemble episode --> here we're assuming demos so we set reward to 1 at the end
             episode = []
-            N = 1
-            for i in range(0, len(db['timestamps']) - N, N):
-                # calculate delta action to N step
-                # if i % N != 0:
-                #     continue
-
-                # Convert demonstration data to 6DOF actions
-                current_pos = db['eef_pos'][i]
-                target_pos = db['eef_pos'][i + N]
-                delta_pos = target_pos - current_pos
-
-                current_quat = db['eef_quat'][i]
-                target_quat = db['eef_quat'][i + N]
-                if np.dot(target_quat, current_quat) < 0.0:
-                    current_quat = -current_quat
-
-                # convert both quats to rot mats
-                current_rot_mat = quat2mat(current_quat)
-                target_rot_mat = quat2mat(target_quat)
-
-                # calculate delta rot mat
-                delta_rot_mat = target_rot_mat @ np.linalg.inv(current_rot_mat)
-
-                # convert to rpy Euler angles
-                delta_rpy = mat2euler(delta_rot_mat)
-
-                # delta_rpy = quat2axisangle(target_quat) - quat2axisangle(current_quat)
-                deltas = np.concatenate((delta_pos, delta_rpy))
-                delta_gripper = [1 if db['gripper_cmd'][i] <= 0 else 0]  # 0 -> open , 1 -> close
-
-                # # copy clipping frmo openteach
-                # delta_pos *= 10
-                # delta_pos = np.clip(delta_pos, -1.0, 1.0)
-                # delta_rpy = np.clip(delta_rpy, -0.5, 0.5)
-
-                image = db['rgb_imgs'][2][i]  # 2 is front, 1 is side, 0 is top
+            for i in range(len(db['timestamp'])):
+                image = db['rgb_frames'][i, 2]  # 2 is front, 1 is side, 0 is top
                 image = image[:, 140:500]  # center crop 360x360
 
                 episode.append({
                     'observation': {
                         'image': image,
-                        'state': np.concatenate((current_pos, mat2euler(quat2mat(current_quat)))),
-                        'gripper_state': np.array([1 if db['gripper_cmd'][i] <= 0 else 0], dtype=np.int8),   # 0 -> open , 1 -> close
+                        'state': np.concatenate((db['eef_pos'][i].squeeze(), mat2euler(quat2mat(db['eef_quat'][i]))), dtype=np.float32),
+                        'gripper_state': np.array(db['gripper_state'][i: i + 1], dtype=np.float32),   # 0 -> open , 1 -> close
                     },
                     # 'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
-                    'action': np.concatenate((deltas, delta_gripper), dtype=np.float32),
+                    'action': np.concatenate((
+                        db['arm_action'][i][:3],
+                        mat2euler(quat2mat(axisangle2quat(db['arm_action'][i][3:]))),
+                        db['gripper_action'][i: i + 1]
+                        ), dtype=np.float32),
                     # 'discount': 1.0,
                     # 'reward': float(i == (len(db['timestamps']) - 1)),
                     # 'is_first': i == 0,
