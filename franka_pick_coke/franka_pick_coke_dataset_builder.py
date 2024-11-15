@@ -7,6 +7,7 @@ import tensorflow_datasets as tfds
 import tensorflow_hub as hub
 import pickle as pkl
 import math
+import cv2
 
 from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisangle2quat
 
@@ -30,20 +31,20 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                 'steps': tfds.features.Dataset({
                     'observation': tfds.features.FeaturesDict({
                         'image': tfds.features.Tensor(
-                            shape=(360, 360, 3),
+                            shape=(224, 224, 3),
                             dtype=np.uint8,
                             doc='Front camera RGB observation.',
                         ),
                         'state': tfds.features.Tensor(
                         shape=(6,),
                         dtype=np.float32,
-                        doc='Robot action, consists of [eef_pos (x, y, z), '
+                        doc='Robot state, consists of [eef_pos (x, y, z), '
                             'eef_euler (roll, pitch, yaw)].',
                         ),
                         'gripper_state': tfds.features.Tensor(
-                        shape=(1,),
+                        shape=(1,),  # scalar of gripper width
                         dtype=np.float32,
-                        doc='gripper_cmd (x).',
+                        doc='gripper_state (x).',
                         ),
                         # 'image2': tfds.features.Tensor(
                         #     shape=(360, 640, 3),
@@ -74,7 +75,10 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
                     'action': tfds.features.Tensor(
                         shape=(7,),
                         dtype=np.float32,
-                        doc='Robot action: EEF Delta XYZ (3) + Roll-Pitch-Yaw (3) + Gripper Open/Close (1)',
+                        doc='CMD Robot action: EEF Delta XYZ (3) + Roll-Pitch-Yaw (3) + Gripper Open/Close (1)',
+                        # xyz can leave as is
+                        # rpy can convert to euler
+                        # gripper needs to be mapped to 0 -> close, 1 -> open
                     # ),
                     # 'discount': tfds.features.Scalar(
                     #     dtype=np.float32,
@@ -116,7 +120,7 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='data/demo_coke*.pkl'),
+            'train': self._generate_examples(path='data/*.pkl'),
             # 'val': self._generate_examples(path='data/val/episode_*.npy'),
         }
 
@@ -127,33 +131,30 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
             # load raw data --> this should change for your dataset
             with open(episode_path, 'rb') as dbfile:
                 db = pkl.load(dbfile)
-
-            # assemble episode --> here we're assuming demos so we set reward to 1 at the end
+            # breakpoint()
+            # assemble episode --> here we're assuming demos
             episode = []
             for i in range(len(db['timestamp'])):
                 image = db['rgb_frames'][i, 2]  # 2 is front, 1 is side, 0 is top
                 image = image[:, 140:500]  # center crop 360x360
+                image = cv2.resize(image, (224 ,224))  # size correctly
+                # images in pkl file are in BGR format, convert to RGB
+                image = image[:, :, ::-1]
 
                 episode.append({
                     'observation': {
                         'image': image,
                         'state': np.concatenate((db['eef_pos'][i].squeeze(), mat2euler(quat2mat(db['eef_quat'][i]))), dtype=np.float32),
-                        'gripper_state': np.array(db['gripper_state'][i: i + 1], dtype=np.float32),   # 0 -> open , 1 -> close
+                        'gripper_state': np.array(db['gripper_state'][i: i + 1], dtype=np.float32),
                     },
-                    # 'action': np.concatenate((delta_pos, delta_rpy, delta_gripper), dtype=np.float32),
                     'action': np.concatenate((
                         db['arm_action'][i][:3],
-                        mat2euler(quat2mat(axisangle2quat(db['arm_action'][i][3:]))),
-                        db['gripper_action'][i: i + 1]
+                        mat2euler(quat2mat(axisangle2quat(db['arm_action'][i][3:]))),  # convert to euler so openvla outputs euler
+                        [db['gripper_action'][i]]
                         ), dtype=np.float32),
-                    # 'discount': 1.0,
-                    # 'reward': float(i == (len(db['timestamps']) - 1)),
-                    # 'is_first': i == 0,
-                    # 'is_last': i == (len(db['timestamps']) - 1),
-                    # 'is_terminal': i == (len(db['timestamps']) - 1),
                     'language_instruction': "pick up the coke can",
-                    # 'language_embedding': np.zeros((1,), dtype=np.float16),
                 })
+
 
             # create output data sample
             sample = {
