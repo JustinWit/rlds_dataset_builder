@@ -122,8 +122,8 @@ class SynCoke(tfds.core.GeneratorBasedBuilder):
         # I have 1000 demos, so I will use 800 for training and 200 for validation
         """
         return {
-            'train': self._generate_examples(path='data/demo_[0-7][0-9][0-9].pkl'),
-            'val': self._generate_examples(path='data/demo_[8-9][0-9][0-9].pkl'),
+            'train': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800)]),
+            'val': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800, 1000)]),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
@@ -169,8 +169,9 @@ class SynCoke(tfds.core.GeneratorBasedBuilder):
             # if you want to skip an example for whatever reason, simply return None
             return episode_path, sample
 
-        # create list of all examples
-        episode_paths = glob.glob(path)
+        # # create list of all examples
+        # episode_paths = glob.glob(path)
+        episode_paths = path
 
         # for smallish datasets, use single-thread parsing
         for sample in episode_paths:
