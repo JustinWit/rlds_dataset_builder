@@ -13,7 +13,7 @@ from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisa
 
 
 
-class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
+class SynCoke(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -118,10 +118,12 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
             }))
 
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-        """Define data splits."""
+        """Define data splits.
+        # I have 1000 demos, so I will use 800 for training and 200 for validation
+        """
         return {
-            'train': self._generate_examples(path='data/*.pkl'),
-            # 'val': self._generate_examples(path='data/val/episode_*.npy'),
+            'train': self._generate_examples(path='data/demo_[0-7][0-9][0-9].pkl'),
+            'val': self._generate_examples(path='data/demo_[8-9][0-9][0-9].pkl'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
@@ -134,11 +136,11 @@ class FrankaPickCoke(tfds.core.GeneratorBasedBuilder):
             # breakpoint()
             # assemble episode --> here we're assuming demos
             episode = []
-            for i in range(len(db['timestamp'])):
-                image = db['rgb_frames'][i, 2]  # 2 is front, 1 is side, 0 is top
-                image = image[:, 140:500]  # center crop 360x360
+            for i in range(db['rgb_frames'].shape[0]):
+                image = db['rgb_frames'][i, 0]  # 0 is left shoulder camera, which was moved to roughly match the front camera
+                # image = image[:, 140:500]  # center crop 360x360 # images is already 256x256
                 image = cv2.resize(image, (224 ,224))  # size correctly
-                # images in pkl file are in BGR format, convert to RGB
+                # images in pkl file are in BGR format, convert to RGB  # TODO
                 image = image[:, :, ::-1]
 
                 episode.append({
