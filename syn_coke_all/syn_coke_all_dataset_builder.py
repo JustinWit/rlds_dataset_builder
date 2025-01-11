@@ -13,7 +13,7 @@ from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisa
 
 
 
-class SynCoke(tfds.core.GeneratorBasedBuilder):
+class SynCokeAll(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -122,8 +122,8 @@ class SynCoke(tfds.core.GeneratorBasedBuilder):
         # I have 1000 demos, so I will use 800 for training and 200 for validation
         """
         return {
-            'train': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800)]),
-            'val': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800, 1000)]),
+            'train': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(1000)]),
+            # 'val': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800, 1000)]),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
@@ -137,25 +137,26 @@ class SynCoke(tfds.core.GeneratorBasedBuilder):
             # assemble episode --> here we're assuming demos
             episode = []
             for i in range(db['rgb_frames'].shape[0]):
-                image = db['rgb_frames'][i, 0]  # 0 is left shoulder camera, which was moved to roughly match the front camera
-                # image = image[:, 140:500]  # center crop 360x360 # images is already 256x256
-                image = cv2.resize(image, (224 ,224))  # size correctly
-                # images in pkl file are in BGR format, convert to RGB  # TODO
-                image = image[:, :, ::-1]
+                for j in range(5):
+                    image = db['rgb_frames'][i, j]  # 0 is left shoulder camera, which was moved to roughly match the front camera
+                    # image = image[:, 140:500]  # center crop 360x360 # images is already 256x256
+                    image = cv2.resize(image, (224 ,224))  # size correctly
+                    # images in pkl file are in BGR format, convert to RGB  # TODO
+                    image = image[:, :, ::-1]
 
-                episode.append({
-                    'observation': {
-                        'image': image,
-                        'state': np.concatenate((db['eef_pos'][i].squeeze(), mat2euler(quat2mat(db['eef_quat'][i]))), dtype=np.float32),
-                        'gripper_state': np.array(db['gripper_state'][i: i + 1], dtype=np.float32),
-                    },
-                    'action': np.concatenate((
-                        db['arm_action'][i][:3],
-                        mat2euler(quat2mat(axisangle2quat(db['arm_action'][i][3:]))),  # convert to euler so openvla outputs euler
-                        [db['gripper_action'][i]]
-                        ), dtype=np.float32),
-                    'language_instruction': "pick up the coke can",
-                })
+                    episode.append({
+                        'observation': {
+                            'image': image,
+                            'state': np.concatenate((db['eef_pos'][i].squeeze(), mat2euler(quat2mat(db['eef_quat'][i]))), dtype=np.float32),
+                            'gripper_state': np.array(db['gripper_state'][i: i + 1], dtype=np.float32),
+                        },
+                        'action': np.concatenate((
+                            db['arm_action'][i][:3],
+                            mat2euler(quat2mat(axisangle2quat(db['arm_action'][i][3:]))),  # convert to euler so openvla outputs euler
+                            [db['gripper_action'][i]]
+                            ), dtype=np.float32),
+                        'language_instruction': "pick up the coke can",
+                    })
 
 
             # create output data sample
@@ -177,10 +178,10 @@ class SynCoke(tfds.core.GeneratorBasedBuilder):
         for sample in episode_paths:
             yield _parse_example(sample)
 
-        # for large datasets use beam to parallelize data parsing (this will have initialization overhead)
-        beam = tfds.core.lazy_imports.apache_beam
-        return (
-                beam.Create(episode_paths)
-                | beam.Map(_parse_example)
-        )
+        # # for large datasets use beam to parallelize data parsing (this will have initialization overhead)
+        # beam = tfds.core.lazy_imports.apache_beam
+        # return (
+        #         beam.Create(episode_paths)
+        #         | beam.Map(_parse_example)
+        # )
 

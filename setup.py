@@ -1,3 +1,3 @@
 from setuptools import setup
 
-setup(name="franka_pick_coke", packages=["franka_pick_coke"])
+setup(name="syn_coke_all", packages=["syn_coke_all"])
