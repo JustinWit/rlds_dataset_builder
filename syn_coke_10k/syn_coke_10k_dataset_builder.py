@@ -13,7 +13,7 @@ from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisa
 
 
 
-class SynCokeAll(tfds.core.GeneratorBasedBuilder):
+class SynCoke10k(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -121,8 +121,9 @@ class SynCokeAll(tfds.core.GeneratorBasedBuilder):
         """Define data splits.
         # I have 1000 demos, so I will use 800 for training and 200 for validation
         """
+        path = "/data3/rlbench_demos/pick_up_coke_10_000/converted"
         return {
-            'train': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(1000)]),
+            'train': self._generate_examples(path=[f'{path}/demo_{i}.pkl' for i in range(10_000)]),
             # 'val': self._generate_examples(path=[f'data/demo_{i}.pkl' for i in range(800, 1000)]),
         }
 
@@ -137,7 +138,7 @@ class SynCokeAll(tfds.core.GeneratorBasedBuilder):
             # assemble episode --> here we're assuming demos
             episode = []
             for i in range(db['rgb_frames'].shape[0]):
-                for j in range(5):
+                for j in range(1):
                     image = db['rgb_frames'][i, j]  # 0 is left shoulder camera, which was moved to roughly match the front camera
                     # image = image[:, 140:500]  # center crop 360x360 # images is already 256x256
                     image = cv2.resize(image, (224 ,224))  # size correctly
