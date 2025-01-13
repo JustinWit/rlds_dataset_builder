@@ -13,7 +13,7 @@ from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisa
 
 
 
-class SynCoke10k(tfds.core.GeneratorBasedBuilder):
+class SynCoke10kAll(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -138,7 +138,7 @@ class SynCoke10k(tfds.core.GeneratorBasedBuilder):
             # assemble episode --> here we're assuming demos
             episode = []
             for i in range(db['rgb_frames'].shape[0]):
-                for j in range(1):
+                for j in range(5):
                     image = db['rgb_frames'][i, j]  # 0 is left shoulder camera, which was moved to roughly match the front camera
                     # image = image[:, 140:500]  # center crop 360x360 # images is already 256x256
                     image = cv2.resize(image, (224 ,224))  # size correctly
