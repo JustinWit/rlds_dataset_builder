@@ -13,7 +13,7 @@ from transform_utils import mat2quat, quat2axisangle, mat2euler, quat2mat, axisa
 
 
 
-class SimDemos500(tfds.core.GeneratorBasedBuilder):
+class SimDemos500DomainRand(tfds.core.GeneratorBasedBuilder):
     """DatasetBuilder for example dataset."""
 
     VERSION = tfds.core.Version('1.0.0')
@@ -121,7 +121,7 @@ class SimDemos500(tfds.core.GeneratorBasedBuilder):
         """Define data splits.
         # I have 500 demos, use all for training
         """
-        path = "/data3/rlbench_demos/sim_demos/converted"
+        path = "/data3/rlbench_demos/sim_demos_domain_rand/converted"
         return {
             'train': self._generate_examples(path=[f'{path}/demo_{i}.pkl' for i in range(500)]),
         }
